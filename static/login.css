@@ -1,0 +1,145 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
+}
+
+body {
+  height: 100vh;
+  background-color: #fefefe;
+}
+
+.container {
+  display: flex;
+  height: 100vh;
+}
+
+.left-panel {
+  background: linear-gradient(to bottom, #F2613F, #9B3922,#481E14);
+  color: white;
+  width: 40%;
+  padding: 60px 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.logo {
+  width: 150px;
+  margin-bottom: 30px;
+  align-self: center;
+}
+
+.handshake {
+  width: 100%;
+  max-width: 300px;
+  align-self: center;
+  margin: 0 auto 30px;
+}
+
+.left-panel h1 {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.subtext {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #f0d7ce;
+}
+
+.right-panel {
+  width: 60%;
+  padding: 60px 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+
+.right-panel h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  text-align: left;
+}
+
+.signup-sub {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 30px;
+}
+
+form .input-box {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.input-box input {
+  width: 100%;
+  padding: 14px 40px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.input-box .icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  font-size: 16px;
+}
+
+.input-box .show {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+}
+
+button {
+  background-color: #000;
+  color: #fff;
+  padding: 14px;
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+button:hover {
+  background-color: #222;
+}
+
+.bottom-text {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #666;
+}
+
+.bottom-text a {
+  font-weight: 600;
+  color: #000;
+  text-decoration: none;
+}
+a {
+  color: inherit;           /* Takes the color of the parent */
+  text-decoration: none;    /* Removes the underline */
+  font-weight: 600;         /* Optional: to make it bolder like your design */
+  cursor: pointer;
+}
+
+a:hover {
+  text-decoration: underline; /* Optional: underline on hover */
+}

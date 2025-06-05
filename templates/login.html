@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Login | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='login.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="left-panel">
+        <img
+          src="{{ url_for('static', filename='logo.png') }}"
+          alt="AutoResolveX Logo"
+          class="logo"
+        />
+        <img
+          src="{{ url_for('static', filename='handshake.png') }}"
+          alt="Handshake"
+          class="handshake"
+        />
+        <h1>
+          Partnership for <br />
+          Business Growth
+        </h1>
+        <p class="subtext">AI-Powered IT Ticket Triage and Resolution Engine</p>
+      </div>
+      <div class="right-panel">
+        <h2>WELCOME BACK EXCLUSIVE MEMBER</h2>
+        <p class="signup-sub">LOG IN TO CONTINUE</p>
+        <form method="POST" action="/login">
+          <div class="input-box">
+            <span class="icon">📧</span>
+            <input
+              type="email"
+              name="email"
+              placeholder="example@email.com"
+              required
+            />
+          </div>
+          <div class="input-box">
+            <span class="icon">🔒</span>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              placeholder="**********"
+              required
+            />
+            <span class="show" id="togglePassword">SHOW</span>
+          </div>
+          <button type="submit">Proceed to my Account ➜</button>
+          <p class="bottom-text">
+            Not a member yet? <a href="/signup">JOIN NOW</a>
+          </p>
+        </form>
+      </div>
+    </div>
+  </body>
+  <script>
+    const toggle = document.getElementById("togglePassword");
+    const password = document.getElementById("password");
+
+    toggle.addEventListener("click", function () {
+      const type =
+        password.getAttribute("type") === "password" ? "text" : "password";
+      password.setAttribute("type", type);
+      this.textContent = type === "password" ? "SHOW" : "HIDE";
+    });
+  </script>
+</html>

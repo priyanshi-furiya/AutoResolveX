@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ask Assistant | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='ticket-details.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const chatMessages = document.querySelector(".chat-messages");
+        const inputField = document.querySelector(".input-area input");
+        const sendButton = document.querySelector(".input-area button");
+        const loadingSpan = document.querySelector(".loading");
+
+        // Function to add a message to the chat
+        function addMessage(content, isUser = false) {
+          const messageDiv = document.createElement("div");
+          messageDiv.className = `message ${isUser ? "user" : "assistant"}`;
+          messageDiv.textContent = content;
+          chatMessages.appendChild(messageDiv);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Function to handle the assistant request
+        async function askAssistant(query) {
+          try {
+            loadingSpan.style.display = "inline-block";
+            const response = await fetch("/ask-assistant", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                query: query,
+              }),
+            });
+
+            if (!response.ok) throw new Error("Failed to get response");
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            addMessage(data.answer);
+          } catch (error) {
+            const errorDiv = document.createElement("div");
+            errorDiv.className = "error-message";
+            errorDiv.textContent = `Error: ${error.message}`;
+            chatMessages.appendChild(errorDiv);
+          } finally {
+            loadingSpan.style.display = "none";
+          }
+        }
+
+        // Handle send button click
+        sendButton.addEventListener("click", () => {
+          const query = inputField.value.trim();
+          if (query) {
+            addMessage(query, true);
+            askAssistant(query);
+            inputField.value = "";
+          }
+        });
+
+        // Handle enter key
+        inputField.addEventListener("keypress", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendButton.click();
+          }
+        }); // Add initial message
+        addMessage("Hello! I'm your AI assistant. How can I help you today?");
+      });
+    </script>
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo">AutoResolveX</div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/similar-tickets">Similar Tickets</a></li>
+          <li><a href="/recommended-tickets">Recommended Tickets</a></li>
+          <li><a href="/ask-assistant" class="active">Ask Assistant</a></li>
+        </ul>
+      </nav>
+      <div class="right-actions">
+        <div class="icon">🔔</div>
+        <div class="avatar">🧑🏽</div>
+        <a
+          href="{{ url_for('logout') }}"
+          style="margin-left: 20px; color: white; text-decoration: none"
+          >Logout</a
+        >
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="left-section" style="flex: 1">
+        <h2>Ask Assistant</h2>
+        <p class="subtext">
+          Ask the AI assistant for help with any IT support related questions.
+          The assistant has access to our knowledge base and can help with
+          troubleshooting steps, best practices, and more.
+        </p>
+
+        <div class="chatbox">
+          <div class="chat-messages">
+            <!-- Messages will be added here by JavaScript -->
+          </div>
+
+          <div class="input-area">
+            <input type="text" placeholder="Ask me anything..." />
+            <button>Send</button>
+            <span class="loading" style="display: none">⏳</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

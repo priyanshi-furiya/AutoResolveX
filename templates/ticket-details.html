@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket {{ ticket['Ticket Number'] }} | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='ticket-details.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const chatMessages = document.querySelector(".chat-messages");
+        const inputField = document.querySelector(".input-area input");
+        const sendButton = document.querySelector(".input-area button");
+        const loadingSpan = document.querySelector(".loading");
+
+        // Function to add a message to the chat
+        function addMessage(content, isUser = false) {
+          const messageDiv = document.createElement("div");
+          messageDiv.className = `message ${isUser ? "user" : "assistant"}`;
+          messageDiv.textContent = content;
+          chatMessages.appendChild(messageDiv);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Function to handle the assistant request
+        async function askAssistant(query) {
+          try {
+            loadingSpan.style.display = "inline-block";
+            const response = await fetch("/ask-assistant", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                query: query,
+                current_incident_context: {
+                  summary: '{{ ticket["Summary"] }}',
+                  category: '{{ ticket["Category"] }}',
+                  priority: '{{ ticket["Priority"] }}',
+                  severity: '{{ ticket["Severity"] }}',
+                  latest_comments: '{{ ticket["Latest Comments"] }}',
+                },
+              }),
+            });
+
+            if (!response.ok) throw new Error("Failed to get response");
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            addMessage(data.answer);
+          } catch (error) {
+            const errorDiv = document.createElement("div");
+            errorDiv.className = "error-message";
+            errorDiv.textContent = `Error: ${error.message}`;
+            chatMessages.appendChild(errorDiv);
+          } finally {
+            loadingSpan.style.display = "none";
+          }
+        }
+
+        // Handle send button click
+        sendButton.addEventListener("click", () => {
+          const query = inputField.value.trim();
+          if (query) {
+            addMessage(query, true);
+            askAssistant(query);
+            inputField.value = "";
+          }
+        });
+
+        // Handle enter key
+        inputField.addEventListener("keypress", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendButton.click();
+          }
+        });
+
+        // Add initial message
+        addMessage(
+          "Hello! I'm your AI assistant. How can I help you with this ticket?"
+        );
+      });
+    </script>
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo">AutoResolveX</div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/similar-tickets">Similar Tickets</a></li>
+          <li><a href="/recommended-tickets">Recommended Tickets</a></li>
+          <li>
+            <a
+              href="/ticket-details/{{ ticket['Ticket Number'] }}"
+              class="active"
+              >Ask Assistant</a
+            >
+          </li>
+        </ul>
+      </nav>
+      <div class="right-actions">
+        <div class="search-box">
+          🔍 <input type="text" placeholder="Search" />
+        </div>
+        <div class="icon">🔔</div>
+        <div class="avatar">🧑🏽</div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="left-section">
+        <h2>Ticket #{{ ticket['Ticket Number'] }}: {{ ticket['Summary'] }}</h2>
+
+        <div class="tabs">
+          <span class="tab">Overview</span>
+          <span class="tab">Activity</span>
+          <span class="tab">Resolution</span>
+          <span class="tab active">Ask Assistant</span>
+        </div>
+
+        <div class="chatbox">
+          <h3>Ask Assistant</h3>
+          <p class="subtext">
+            Ask the assistant for help with this ticket. The assistant can help
+            you with troubleshooting steps, finding relevant knowledge base
+            articles, and more.
+          </p>
+
+          <div class="chat-messages">
+            <!-- Messages will be added here by JavaScript -->
+          </div>
+
+          <div class="input-area">
+            <input type="text" placeholder="Ask the assistant a question..." />
+            <button>Send</button>
+            <span class="loading" style="display: none">⏳</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-section">
+        <div class="details">
+          <h4>Ticket Details</h4>
+          <p><strong>Status:</strong> {{ ticket['Status'] }}</p>
+          <p><strong>Priority:</strong> {{ ticket['Priority'] }}</p>
+          <p><strong>Category:</strong> {{ ticket['Category'] }}</p>
+          <p><strong>Severity:</strong> {{ ticket['Severity'] }}</p>
+          <p><strong>Project:</strong> {{ ticket['Project'] }}</p>
+          <p><strong>Date Submitted:</strong> {{ ticket['Date Submitted'] }}</p>
+          <p>
+            <strong>Resolution Date:</strong> {{ ticket['Resolution Date'] if
+            ticket['Resolution Date'] else 'Not resolved' }}
+          </p>
+          <p>
+            <strong>Latest Comments:</strong> {{ ticket['Latest Comments'] if
+            ticket['Latest Comments'] else 'No comments' }}
+          </p>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

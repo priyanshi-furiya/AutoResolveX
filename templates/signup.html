@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AutoResolveX Signup</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='signup.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="left-panel">
+        <img
+          src="{{ url_for('static', filename='logo.png') }}"
+          alt="AutoResolveX Logo"
+          class="logo"
+        />
+        <img
+          src="{{ url_for('static', filename='handshake.png') }}"
+          alt="Handshake"
+          class="handshake"
+        />
+        <h1>
+          Partnership for <br />
+          Business Growth
+        </h1>
+        <p class="subtext">AI-Powered IT Ticket Triage and Resolution Engine</p>
+      </div>
+      <div class="right-panel">
+        <p>Already a Member? <a href="{{ url_for('login') }}">LOG IN NOW</a></p>
+        <h2>BECOME AN EXCLUSIVE MEMBERS</h2>
+        <p class="signup-sub">SIGN UP AND JOIN</p>
+        <form method="POST" action="{{ url_for('signup') }}">
+          <div class="input-box">
+            <span class="icon">👤</span>
+            <input type="text" name="name" placeholder="Johnson Doe" required />
+          </div>
+          <div class="input-box">
+            <span class="icon">📧</span>
+            <input
+              type="email"
+              name="email"
+              placeholder="example@email.com"
+              required
+            />
+          </div>
+          <div class="input-box">
+            <span class="icon">🔒</span>
+            <input
+              type="password"
+              name="password"
+              placeholder="**********"
+              required
+            />
+            <span class="show">SHOW</span>
+          </div>
+          <button type="submit">Become a Member ➜</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

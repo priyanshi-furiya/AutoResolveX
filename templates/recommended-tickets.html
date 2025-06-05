@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recommended Tickets | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='recommended.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.querySelector(".search-box input");
+        const tableBody = document.querySelector("tbody");
+        searchInput.addEventListener("keypress", async (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+
+            try {
+              const response = await fetch("/recommend-resolution", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  summary: query,
+                }),
+              });
+
+              if (!response.ok) throw new Error("Recommendation failed");
+
+              const data = await response.json();
+              const recommendations = data.recommendations || [];
+
+              // Update table with recommendations
+              tableBody.innerHTML = recommendations
+                .map(
+                  (rec) => `
+                <tr>
+                  <td>${rec.ticket_info.TicketNumber}</td>
+                  <td>
+                    <a href="/ticket-details/${rec.ticket_info.TicketNumber}">${rec.ticket_info.Summary}</a>
+                  </td>
+                </tr>
+              `
+                )
+                .join("");
+
+              if (recommendations.length === 0) {
+                tableBody.innerHTML = `
+                  <tr>
+                    <td colspan="2" style="text-align: center">No recommended tickets found</td>
+                  </tr>
+                `;
+              }
+            } catch (error) {
+              console.error("Search failed:", error);
+            }
+          }
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo">AutoResolveX</div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/similar-tickets">Similar Tickets</a></li>
+          <li>
+            <a href="/recommended-tickets" class="active"
+              >Recommended Tickets</a
+            >
+          </li>
+          <li><a href="/ask-assistant">Ask Assistant</a></li>
+        </ul>
+      </nav>
+      <div class="right-actions">
+        <div class="search-box">
+          🔍 <input type="text" placeholder="Search" />
+        </div>
+        <div class="icon">🔔</div>
+        <div class="avatar">🧑🏽</div>
+        <a
+          href="{{ url_for('logout') }}"
+          style="margin-left: 20px; color: white; text-decoration: none"
+          >Logout</a
+        >
+      </div>
+    </header>
+
+    <main class="main-content">
+      <h2>Recommended Tickets</h2>
+      <p class="subtext">
+        Based on the current ticket's details, these tickets are recommended for
+        review.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket Number</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ticket in tickets %}
+          <tr>
+            <td>{{ ticket['Ticket Number'] }}</td>
+            <td>
+              <a
+                href="{{ url_for('ticket_details', ticket_id=ticket['Ticket Number']) }}"
+                >{{ ticket['Summary'] }}</a
+              >
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

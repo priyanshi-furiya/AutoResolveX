@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Similar Tickets | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='similar.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.querySelector(".search-box input");
+        const tableBody = document.querySelector("tbody");
+
+        searchInput.addEventListener("keypress", async (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+
+            try {
+              const response = await fetch(
+                `/search?q=${encodeURIComponent(query)}`
+              );
+              if (!response.ok) throw new Error("Search failed");
+
+              const tickets = await response.json();
+
+              // Update table with search results
+              tableBody.innerHTML = tickets
+                .map(
+                  (ticket) => `
+                <tr>
+                  <td>${ticket["Ticket Number"]}</td>
+                  <td>
+                    <a href="/ticket-details/${ticket["Ticket Number"]}">${ticket["Summary"]}</a>
+                  </td>
+                  <td>
+                    <a href="/ticket-details/${ticket["Ticket Number"]}" class="view-link">View</a>
+                  </td>
+                </tr>
+              `
+                )
+                .join("");
+
+              if (tickets.length === 0) {
+                tableBody.innerHTML = `
+                  <tr>
+                    <td colspan="3" style="text-align: center">No tickets found</td>
+                  </tr>
+                `;
+              }
+            } catch (error) {
+              console.error("Search failed:", error);
+            }
+          }
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo">AutoResolveX</div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/similar-tickets" class="active">Similar Tickets</a></li>
+          <li><a href="/recommended-tickets">Recommended Tickets</a></li>
+          <li><a href="/ask-assistant">Ask Assistant</a></li>
+        </ul>
+      </nav>
+      <div class="right-actions">
+        <div class="search-box">
+          🔍 <input type="text" placeholder="Search" />
+        </div>
+        <div class="icon">🔔</div>
+        <div class="avatar">🧑🏽</div>
+        <a
+          href="{{ url_for('logout') }}"
+          style="margin-left: 20px; color: white; text-decoration: none"
+          >Logout</a
+        >
+      </div>
+    </header>
+
+    <main class="main-content">
+      <h2>Similar Tickets</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket Number</th>
+            <th>Description</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ticket in tickets %}
+          <tr>
+            <td>{{ ticket['Ticket Number'] }}</td>
+            <td>
+              <a
+                href="{{ url_for('ticket_details', ticket_id=ticket['Ticket Number']) }}"
+                >{{ ticket['Summary'] }}</a
+              >
+            </td>
+            <td>
+              <a
+                href="{{ url_for('ticket_details', ticket_id=ticket['Ticket Number']) }}"
+                class="view-link"
+                >View</a
+              >
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>
