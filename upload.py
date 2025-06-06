@@ -1,13 +1,18 @@
 import pandas as pd
 from azure.cosmos import CosmosClient
 import uuid
+import os
+from dotenv import load_dotenv
 
-# Replace with your values
-COSMOS_DB_URI = ""
-COSMOS_DB_KEY = ""
-DATABASE_NAME = "incident-db"
-CONTAINER_NAME = "incidents"
-EXCEL_FILE_PATH = ""  # <-- Update this
+# Load environment variables
+load_dotenv()
+
+# Configuration from environment variables
+COSMOS_DB_URI = os.getenv('COSMOS_DB_URI')
+COSMOS_DB_KEY = os.getenv('COSMOS_DB_KEY')
+DATABASE_NAME = os.getenv('DATABASE_NAME')
+CONTAINER_NAME = os.getenv('CONTAINER_NAME')
+EXCEL_FILE_PATH = "D:\Projects\CWB\CaseDataWIthResolution.xlsx"  # <-- Update this
 
 try:
     # Assuming headers are in the 2nd row (index 1)

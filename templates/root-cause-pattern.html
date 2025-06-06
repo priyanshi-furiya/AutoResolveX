@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Root Cause Pattern Analysis | AutoResolveX</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='root-cause.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo">AutoResolveX</div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/similar-tickets">Similar Tickets</a></li>
+          <li><a href="/recommended-tickets">Recommended Tickets</a></li>
+          <li><a href="/ask-assistant">Ask Assistant</a></li>
+          <li>
+            <a href="/root-cause-pattern" class="active">Root Cause Pattern</a>
+          </li>
+        </ul>
+      </nav>
+      <div class="right-actions">
+        <div class="search-box">
+          🔍 <input type="text" placeholder="Search patterns..." />
+        </div>
+        <div class="icon">🔔</div>
+        <div class="avatar">🧑🏽</div>
+        <a
+          href="{{ url_for('logout') }}"
+          style="margin-left: 20px; color: white; text-decoration: none"
+          >Logout</a
+        >
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="content-header">
+        <div class="title-section">
+          <h2>Root Cause Pattern Analysis</h2>
+          <p class="subtext">
+            Discover patterns and trends in incident data to prevent future
+            issues
+          </p>
+        </div>
+        <!-- Filter section removed -->
+      </div>
+
+      {% with messages = get_flashed_messages() %} {% if messages %}
+      <div class="alert-container">
+        {% for message in messages %}
+        <div class="alert">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %} {% endwith %}
+
+      <div class="cluster-summary">
+        <div class="summary-card total">
+          <h3>Total Incidents</h3>
+          <p class="number">{{ clusters|sum(attribute='size') }}</p>
+        </div>
+        <div class="summary-card avg-resolution">
+          <h3>Average Resolution Time</h3>
+          <p class="number">
+            {% set valid_times =
+            clusters|map(attribute='avg_resolution_time')|reject('equalto',
+            'N/A')|list %} {% if valid_times|length > 0 %} {{
+            (valid_times|map('float')|sum / valid_times|length)|round(1) }}
+            hours {% else %} N/A {% endif %}
+          </p>
+        </div>
+        <div class="summary-card clusters">
+          <h3>Clusters Found</h3>
+          <p class="number">{{ clusters|length }}</p>
+        </div>
+      </div>
+
+      <div class="analysis-container">
+        {% if clusters %}
+        <div class="cluster-grid">
+          {% for cluster in clusters %}
+          <div class="cluster-card" data-cluster-id="{{ cluster.id }}">
+            <div class="cluster-header">
+              <span class="cluster-id">Cluster {{ cluster.id + 1 }}</span>
+              <span class="ticket-count">{{ cluster.size }} incidents</span>
+              <span class="cluster-toggle">▼</span>
+            </div>
+            <div class="cluster-content hidden">
+              <div class="section keywords">
+                <h4>Top Keywords</h4>
+                <div class="keyword-tags">
+                  {% for keyword in cluster.keywords %}
+                  <span class="keyword">{{ keyword }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="section metrics">
+                <h4>Resolution Metrics</h4>
+                <div class="metric-grid">
+                  <div class="metric">
+                    <span class="label">Average Time</span>
+                    <span class="value"
+                      >{{ cluster.avg_resolution_time }}h</span
+                    >
+                  </div>
+                  <div class="metric">
+                    <span class="label">Median Time</span>
+                    <span class="value"
+                      >{{ cluster.median_resolution_time }}h</span
+                    >
+                  </div>
+                </div>
+              </div>
+              <div class="section temporal">
+                <h4>Temporal Analysis</h4>
+                <div class="temporal-analysis">
+                  <p>
+                    {{ cluster.temporal_analysis|replace('\n', '<br />')|safe }}
+                  </p>
+                </div>
+              </div>
+              <div class="section analysis">
+                <h4>Root Cause Analysis</h4>
+                <div class="root-cause-analysis">
+                  <p>
+                    {{ cluster.root_cause_analysis|replace('\n', '<br />')|safe
+                    }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if plot_base64 %}
+        <div class="visualization-section">
+          <h3>Cluster Visualization</h3>
+          <div class="plot-container">
+            <img
+              src="data:image/png;base64,{{ plot_base64 }}"
+              alt="Cluster Visualization"
+            />
+          </div>
+        </div>
+        {% endif %} {% else %}
+        <div class="no-data">
+          <p>
+            No clusters found. Try adjusting your filters or adding more
+            incident data.
+          </p>
+        </div>
+        {% endif %}
+      </div>
+    </main>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const clusterCards = document.querySelectorAll(".cluster-card");
+
+        clusterCards.forEach((card) => {
+          const header = card.querySelector(".cluster-header");
+          const content = card.querySelector(".cluster-content");
+          const toggle = card.querySelector(".cluster-toggle");
+
+          header.addEventListener("click", () => {
+            const isHidden = content.classList.contains("hidden");
+
+            // Hide all other cluster contents
+            document.querySelectorAll(".cluster-content").forEach((c) => {
+              c.classList.add("hidden");
+              c
+                .closest(".cluster-card")
+                .querySelector(".cluster-toggle").textContent = "▼";
+            });
+
+            // Toggle current cluster
+            if (isHidden) {
+              content.classList.remove("hidden");
+              toggle.textContent = "▲";
+            } else {
+              content.classList.add("hidden");
+              toggle.textContent = "▼";
+            }
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

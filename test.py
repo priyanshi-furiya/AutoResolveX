@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import os
+from dotenv import load_dotenv
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
@@ -14,22 +15,35 @@ import time
 from flask_sqlalchemy import SQLAlchemy
 import sqlite3
 from datetime import datetime
+import re
+import nltk
+from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import base64
+from io import BytesIO
+
+# Load environment variables
+load_dotenv()
 
 # --- Configuration ---
 # WARNING: Hardcoding keys is NOT recommended for production. Use environment variables or Azure Key Vault.
 
 # Cosmos DB Configuration
-COSMOS_DB_URI = ""
-COSMOS_DB_KEY = ""
-DATABASE_NAME = "incident-db"
-CONTAINER_NAME = "incidents"
+COSMOS_DB_URI = os.getenv('COSMOS_DB_URI')
+COSMOS_DB_KEY = os.getenv('COSMOS_DB_KEY')
+DATABASE_NAME = os.getenv('DATABASE_NAME')
+CONTAINER_NAME = os.getenv('CONTAINER_NAME')
 
-# Azure OpenAI Configuration - Updated with your new values
-AZURE_OPENAI_API_KEY = ""
-AZURE_OPENAI_ENDPOINT = ""
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT = "text-embedding-3-small"
-AZURE_OPENAI_GPT4O_DEPLOYMENT = "gpt-4o-mini"
-AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+# Azure OpenAI Configuration
+AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY')
+AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv(
+    'AZURE_OPENAI_EMBEDDING_DEPLOYMENT')
+AZURE_OPENAI_GPT4O_DEPLOYMENT = os.getenv('AZURE_OPENAI_GPT4O_DEPLOYMENT')
+AZURE_OPENAI_API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION')
 
 # Performance Configuration
 COSMOS_FETCH_LIMIT_FOR_SIMILARITY = 300  # Increased back for better results
@@ -117,28 +131,177 @@ users = {}
 # Load and process ticket data
 
 
-def load_ticket_data():
+@lru_cache(maxsize=1)
+def load_and_process_tickets():
+    """Load and process ticket data from Excel file with caching."""
+    df = pd.read_excel("CaseDataWIthResolution.xlsx")
+
+    # Prepare text data
+    df['combined_text'] = ''
+    text_columns = {
+        'Summary': '',
+        'Latest Comments': '',
+        'Task Type': 'Task Type: ',
+        'Status': 'Status: '
+    }
+
+    for col, prefix in text_columns.items():
+        if col in df.columns:
+            df['combined_text'] += prefix + df[col].astype(str) + ' '
+
+    df['combined_text'] = df['combined_text'].str.strip()
+    return df
+
+
+def perform_cluster_analysis(df, num_clusters=5):
+    """Perform cluster analysis on ticket data."""
+    # TF-IDF Vectorization
+    vectorizer = TfidfVectorizer(
+        max_features=2000,
+        stop_words='english',
+        ngram_range=(1, 2),
+        min_df=2,
+        max_df=0.85
+    )
+    tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
+
+    # Clustering
+    kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+    kmeans.fit(tfidf_matrix)
+    df['cluster_label'] = kmeans.labels_
+
+    return df, tfidf_matrix, vectorizer
+
+
+def analyze_cluster(cluster_df, cluster_id, tfidf_matrix, vectorizer, df_labels):
+    """Analyze a single cluster and return its metrics and analysis."""
+    # Get keywords
+    cluster_tfidf_sum = tfidf_matrix[df_labels == cluster_id].sum(axis=0)
+    feature_names = vectorizer.get_feature_names_out()
+    sorted_indices = cluster_tfidf_sum.A1.argsort()[::-1]
+    keywords = [feature_names[idx] for idx in sorted_indices[:7]]
+
+    # Calculate metrics
+    metrics = {
+        'avg_time': 'N/A',
+        'median_time': 'N/A',
+        'temporal': 'Temporal data not available'
+    }
+
     try:
-        # Try different encodings
-        encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-        for encoding in encodings:
-            try:
-                df = pd.read_csv('CaseDataWIthResolution.csv',
-                                 skiprows=1, encoding=encoding)
-                print(f"Successfully loaded CSV with {encoding} encoding")
-                return df.to_dict('records')
-            except UnicodeDecodeError:
-                continue
-        raise Exception(
-            "Failed to read CSV with any of the attempted encodings")
+        if all(col in cluster_df.columns for col in ['Resolution Date', 'Date Submitted']):
+            cluster_df['Resolution Date'] = pd.to_datetime(
+                cluster_df['Resolution Date'])
+            cluster_df['Date Submitted'] = pd.to_datetime(
+                cluster_df['Date Submitted'])
+            resolution_times = (
+                cluster_df['Resolution Date'] - cluster_df['Date Submitted']).dt.total_seconds() / 3600
+            metrics['avg_time'] = f"{resolution_times.mean():.1f}"
+            metrics['median_time'] = f"{resolution_times.median():.1f}"
+
+            # Temporal analysis
+            metrics['temporal'] = (
+                f"Earliest: {cluster_df['Date Submitted'].min().strftime('%Y-%m-%d')}\n"
+                f"Latest: {cluster_df['Date Submitted'].max().strftime('%Y-%m-%d')}\n"
+                f"Peak Month: {cluster_df['Date Submitted'].dt.to_period('M').mode().iloc[0]}"
+            )
     except Exception as e:
-        print(f"Error loading ticket data: {e}")
-        return []
+        print(f"Error calculating metrics: {e}")
+
+    # Get cluster metadata
+    metadata = {
+        'size': len(cluster_df),
+        'categories': cluster_df['Category'].value_counts().to_dict() if 'Category' in cluster_df.columns else {},
+        'task_types': cluster_df['Task Type'].value_counts().to_dict() if 'Task Type' in cluster_df.columns else {},
+        'severities': cluster_df['Severity'].value_counts().to_dict() if 'Severity' in cluster_df.columns else {},
+        'keywords': keywords,
+        'temporal': metrics['temporal']
+    }
+
+    # Get cluster analysis from OpenAI
+    analysis = get_cluster_analysis(cluster_df, metadata, metrics)
+
+    return {
+        'id': cluster_id,
+        'size': metadata['size'],
+        'keywords': keywords,
+        'avg_resolution_time': metrics['avg_time'],
+        'median_resolution_time': metrics['median_time'],
+        'temporal_analysis': metrics['temporal'],
+        'root_cause_analysis': analysis
+    }
 
 
-tickets = load_ticket_data()
+def get_cluster_analysis(cluster_df, metadata, metrics):
+    """Get cluster analysis from OpenAI."""
+    try:
+        sample_tickets = cluster_df['combined_text'].head(5).tolist()
+        prompt = f"""As an IT incident analysis expert, analyze this cluster of related incidents:
+
+        Cluster Statistics:
+        - Total Incidents: {metadata['size']}
+        - Average Resolution: {metrics['avg_time']} hours
+        - Median Resolution: {metrics['median_time']} hours
+        - Categories: {', '.join(f'{k}({v})' for k,v in metadata['categories'].items())}
+        - Task Types: {', '.join(f'{k}({v})' for k,v in metadata['task_types'].items())}
+        - Severity Levels: {', '.join(f'{k}({v})' for k,v in metadata['severities'].items())}
+        - Key Terms: {', '.join(metadata['keywords'])}
+        - Time Range: {metadata['temporal']}
+
+        Sample Incidents:
+        {chr(10).join(f'- {ticket}' for ticket in sample_tickets)}
+
+        Provide a comprehensive root cause analysis including:
+        1. Primary Root Causes: Identify the fundamental issues causing these incidents
+        2. Systemic Patterns: Note any recurring patterns or systemic issues
+        3. Impact Areas: List major systems, services, or business areas affected
+        4. Resolution Patterns: Common successful resolution approaches
+        5. Preventive Measures: Specific actions to prevent recurrence
+        6. Process Improvements: Recommendations for process/system enhancements
+
+        Focus on actionable insights and clear patterns."""
+
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=[
+                {"role": "system", "content": """You are an expert IT incident analyst specializing in root cause analysis. 
+                Your analysis should be detailed, data-driven, and focused on actionable insights. 
+                Structure your response clearly with headings and bullet points.
+                Prioritize identifying systemic issues and preventive measures."""},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=800,
+            presence_penalty=0.1,
+            frequency_penalty=0.1
+        )
+
+        analysis = response.choices[0].message.content
+        if not analysis or analysis.strip() == "":
+            return "Analysis not available"
+
+        # Format the analysis for better readability
+        for i in range(1, 7):
+            analysis = analysis.replace(f"{i}.", f"\n{i}.")
+
+        return analysis
+    except Exception as e:
+        print(f"Error in OpenAI analysis: {e}")
+        return "Analysis not available - Service error. Please try again later."
+
 
 # --- Helper Functions ---
+
+@lru_cache(maxsize=1)
+def get_tickets():
+    """Get tickets data from Excel file with caching."""
+    try:
+        df = pd.read_excel("CaseDataWIthResolution.xlsx")
+        tickets = df.to_dict('records')
+        return tickets
+    except Exception as e:
+        print(f"Error loading tickets: {e}")
+        return []
 
 
 @lru_cache(maxsize=EMBEDDING_CACHE_SIZE)
@@ -748,6 +911,7 @@ def similar_tickets():
         return redirect(url_for('login'))
 
     # Get all tickets initially, showing most recent first
+    tickets = get_tickets()
     similar = tickets[:5] if tickets else []
     return render_template('similar-tickets.html', tickets=similar)
 
@@ -758,8 +922,9 @@ def recommended_tickets():
         return redirect(url_for('login'))
 
     # Get tickets with high priority or severity
-    recommended = [t for t in tickets if t.get('Priority', '').lower() == 'high'
-                   or t.get('Severity', '').lower() in ['severity 1', 'severity 2']][:5]
+    tickets = get_tickets()
+    recommended = [t for t in tickets if str(t.get('Priority', '')).lower() == 'high'
+                   or str(t.get('Severity', '')).lower() in ['severity 1', 'severity 2']][:5]
     return render_template('recommended-tickets.html', tickets=recommended)
 
 
@@ -768,6 +933,7 @@ def ticket_details(ticket_id):
     if 'user_email' not in session:
         return redirect(url_for('login'))
 
+    tickets = get_tickets()
     ticket = next((t for t in tickets if str(
         t.get('Ticket Number')) == ticket_id), None)
     if ticket is None:
@@ -784,10 +950,279 @@ def search():
 
     query = request.args.get('q', '').lower()
     if query:
+        tickets = get_tickets()
         search_results = [
-            t for t in tickets if query in t.get('Summary', '').lower()]
+            t for t in tickets if query in str(t.get('Summary', '')).lower()]
         return jsonify(search_results)
     return jsonify([])
+
+
+# --- Cluster Analysis Functions ---
+
+def load_and_process_tickets():
+    """Load and process ticket data from Excel file."""
+    try:
+        df = pd.read_excel("CaseDataWIthResolution.xlsx")
+
+        # Prepare text data
+        df['combined_text'] = ''
+        text_columns = {
+            'Summary': '',
+            'Latest Comments': '',
+            'Task Type': 'Task Type: ',
+            'Status': 'Status: '
+        }
+
+        for col, prefix in text_columns.items():
+            if col in df.columns:
+                df['combined_text'] += prefix + df[col].astype(str) + ' '
+
+        df['combined_text'] = df['combined_text'].str.strip()
+        return df
+    except Exception as e:
+        print(f"Error loading ticket data: {e}")
+        return None
+
+
+def perform_cluster_analysis(df, num_clusters=5):
+    """Perform cluster analysis on ticket data."""
+    try:
+        # TF-IDF Vectorization
+        vectorizer = TfidfVectorizer(
+            max_features=2000,
+            stop_words='english',
+            ngram_range=(1, 2),
+            min_df=2,
+            max_df=0.85
+        )
+        tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
+
+        # Clustering
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+        kmeans.fit(tfidf_matrix)
+        df['cluster_label'] = kmeans.labels_
+
+        return df, tfidf_matrix, vectorizer
+    except Exception as e:
+        print(f"Error in cluster analysis: {e}")
+        return None, None, None
+
+
+def get_visualization(df, tfidf_matrix, num_clusters):
+    """Generate cluster visualization."""
+    try:
+        pca = PCA(n_components=2, random_state=42)
+        reduced_data = pca.fit_transform(tfidf_matrix.toarray())
+
+        plt.figure(figsize=(12, 8))
+        colors = plt.cm.get_cmap('tab10', num_clusters)
+
+        for cluster_id in range(num_clusters):
+            mask = df['cluster_label'] == cluster_id
+            plt.scatter(
+                reduced_data[mask, 0],
+                reduced_data[mask, 1],
+                color=colors(cluster_id),
+                label=f'Cluster {cluster_id}',
+                alpha=0.7,
+                s=100,
+                edgecolors='w'
+            )
+
+        plt.title('Incident Clusters Visualization', fontsize=16)
+        plt.xlabel('Principal Component 1', fontsize=12)
+        plt.ylabel('Principal Component 2', fontsize=12)
+        plt.legend(title='Cluster ID', bbox_to_anchor=(
+            1.05, 1), loc='upper left')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.tight_layout()
+
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        plot_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        plt.close()
+
+        return plot_base64
+    except Exception as e:
+        print(f"Error in visualization: {e}")
+        return None
+
+
+def analyze_cluster(cluster_df, cluster_id, tfidf_matrix, vectorizer, labels):
+    """Analyze a single cluster and return its metrics."""
+    try:
+        # Get keywords
+        cluster_tfidf_sum = tfidf_matrix[labels == cluster_id].sum(axis=0)
+        feature_names = vectorizer.get_feature_names_out()
+        sorted_indices = cluster_tfidf_sum.A1.argsort()[::-1]
+        keywords = [feature_names[idx] for idx in sorted_indices[:7]]
+
+        # Calculate metrics
+        metrics = calculate_cluster_metrics(cluster_df)
+
+        # Get cluster metadata
+        metadata = get_cluster_metadata(cluster_df, keywords)
+
+        # Get OpenAI analysis
+        root_cause = get_root_cause_analysis(cluster_df, metadata, metrics)
+
+        return {
+            'id': cluster_id,
+            'size': len(cluster_df),
+            'keywords': keywords,
+            'avg_resolution_time': metrics['avg_time'],
+            'median_resolution_time': metrics['median_time'],
+            'temporal_analysis': metrics['temporal'],
+            'root_cause_analysis': root_cause
+        }
+    except Exception as e:
+        print(f"Error analyzing cluster {cluster_id}: {e}")
+        return None
+
+
+def calculate_cluster_metrics(cluster_df):
+    """Calculate cluster metrics."""
+    metrics = {
+        'avg_time': 'N/A',
+        'median_time': 'N/A',
+        'temporal': 'Temporal data not available'
+    }
+
+    try:
+        if all(col in cluster_df.columns for col in ['Resolution Date', 'Date Submitted']):
+            cluster_df['Resolution Date'] = pd.to_datetime(
+                cluster_df['Resolution Date'])
+            cluster_df['Date Submitted'] = pd.to_datetime(
+                cluster_df['Date Submitted'])
+            resolution_times = (
+                cluster_df['Resolution Date'] - cluster_df['Date Submitted']).dt.total_seconds() / 3600
+
+            metrics.update({
+                'avg_time': f"{resolution_times.mean():.1f}",
+                'median_time': f"{resolution_times.median():.1f}",
+                'temporal': (
+                    f"Earliest: {cluster_df['Date Submitted'].min().strftime('%Y-%m-%d')}\n"
+                    f"Latest: {cluster_df['Date Submitted'].max().strftime('%Y-%m-%d')}\n"
+                    f"Peak Month: {cluster_df['Date Submitted'].dt.to_period('M').mode().iloc[0]}"
+                )
+            })
+    except Exception as e:
+        print(f"Error calculating metrics: {e}")
+
+    return metrics
+
+
+def get_cluster_metadata(cluster_df, keywords):
+    """Get cluster metadata."""
+    return {
+        'size': len(cluster_df),
+        'categories': cluster_df['Category'].value_counts().to_dict() if 'Category' in cluster_df.columns else {},
+        'task_types': cluster_df['Task Type'].value_counts().to_dict() if 'Task Type' in cluster_df.columns else {},
+        'severities': cluster_df['Severity'].value_counts().to_dict() if 'Severity' in cluster_df.columns else {},
+        'keywords': keywords
+    }
+
+
+def get_root_cause_analysis(cluster_df, metadata, metrics):
+    """Get root cause analysis from OpenAI."""
+    try:
+        sample_tickets = cluster_df['combined_text'].head(5).tolist()
+        prompt = f"""As an IT incident analysis expert, analyze this cluster of incidents:
+
+        Stats:
+        - Total Incidents: {metadata['size']}
+        - Avg Resolution: {metrics['avg_time']} hours
+        - Median Resolution: {metrics['median_time']} hours
+        - Categories: {', '.join(f'{k}({v})' for k,v in metadata['categories'].items())}
+        - Task Types: {', '.join(f'{k}({v})' for k,v in metadata['task_types'].items())}
+        - Severities: {', '.join(f'{k}({v})' for k,v in metadata['severities'].items())}
+        - Key Terms: {', '.join(metadata['keywords'])}
+
+        Sample Incidents:
+        {chr(10).join(f'- {ticket}' for ticket in sample_tickets)}
+
+        Analyze:
+        1. Root Causes
+        2. Patterns
+        3. Impact Areas
+        4. Resolution Steps
+        5. Prevention
+        6. Improvements
+        """
+
+        response = aoai_client.chat.completions.create(
+            model=AZURE_OPENAI_GPT4O_DEPLOYMENT,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an IT incident analyst. Provide detailed, actionable insights."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=800
+        )
+
+        analysis = response.choices[0].message.content
+        if not analysis or analysis.strip() == "":
+            return "Analysis not available"
+
+        # Format analysis
+        for i in range(1, 7):
+            analysis = analysis.replace(f"{i}.", f"\n{i}.")
+
+        return analysis
+    except Exception as e:
+        print(f"Error in OpenAI analysis: {e}")
+        return "Analysis not available"
+
+
+@app.route('/root-cause-pattern')
+def root_cause_pattern():
+    """Route handler for root cause pattern analysis."""
+    if 'user_email' not in session:
+        return redirect(url_for('login'))
+
+    try:
+        # Load data
+        df = load_and_process_tickets()
+        if df is None:
+            flash('Error loading ticket data')
+            return render_template('root-cause-pattern.html', clusters=[], plot_base64=None)
+
+        # Perform clustering
+        df, tfidf_matrix, vectorizer = perform_cluster_analysis(df)
+        if any(x is None for x in [df, tfidf_matrix, vectorizer]):
+            flash('Error performing cluster analysis')
+            return render_template('root-cause-pattern.html', clusters=[], plot_base64=None)
+
+        # Analyze clusters
+        num_clusters = 5  # Fixed number of clusters
+        clusters = []
+
+        for i in range(num_clusters):
+            cluster_df = df[df['cluster_label'] == i]
+            if len(cluster_df) > 0:
+                cluster_result = analyze_cluster(
+                    cluster_df, i, tfidf_matrix, vectorizer, df['cluster_label'].values
+                )
+                if cluster_result:
+                    clusters.append(cluster_result)
+
+        if not clusters:
+            flash('No meaningful clusters found')
+            return render_template('root-cause-pattern.html', clusters=[], plot_base64=None)
+
+        # Generate visualization
+        plot_base64 = get_visualization(df, tfidf_matrix, num_clusters)
+
+        return render_template('root-cause-pattern.html', clusters=clusters, plot_base64=plot_base64)
+
+    except Exception as e:
+        print(f"Error in root cause pattern analysis: {e}")
+        flash('Error analyzing root cause patterns')
+        return render_template('root-cause-pattern.html', clusters=[], plot_base64=None)
 
 
 # --- Main Execution ---
