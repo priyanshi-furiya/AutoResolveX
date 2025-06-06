@@ -1,0 +1,13 @@
+flask
+python-dotenv
+pandas
+openpyxl
+azure-cosmos
+openai
+numpy
+scikit-learn
+matplotlib
+nltk
+flask-sqlalchemy
+httpx
+werkzeug
