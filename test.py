@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from utils import verify_ticket_access_token  # Import our utility function
 import json
 import asyncio
+import nest_asyncio  # Add this import
 from concurrent.futures import ThreadPoolExecutor
 from azure.cosmos import CosmosClient, exceptions as cosmos_exceptions
 from openai import AzureOpenAI
@@ -25,11 +26,8 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
-from bot import TeamsBot
-from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
-import nest_asyncio
-import traceback
-from botbuilder.schema import Activity
+import matplotlib.pyplot as plt
+import markdown2  # Added import
 
 # Load environment variables
 load_dotenv()
@@ -1299,7 +1297,7 @@ def get_root_cause_analysis(cluster_df, metadata, metrics):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an IT incident analyst. Provide detailed, actionable insights."
+                    "content": "You are an IT incident analyst. Provide detailed, actionable insights. Format your response in Markdown."
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -1307,18 +1305,17 @@ def get_root_cause_analysis(cluster_df, metadata, metrics):
             max_tokens=800
         )
 
-        analysis = response.choices[0].message.content
-        if not analysis or analysis.strip() == "":
-            return "Analysis not available"
+        analysis_markdown = response.choices[0].message.content
+        if not analysis_markdown or analysis_markdown.strip() == "":
+            return "<p>Analysis not available</p>"
 
-        # Format analysis
-        for i in range(1, 7):
-            analysis = analysis.replace(f"{i}.", f"\n{i}.")
+        # Convert Markdown to HTML
+        analysis_html = markdown2.markdown(analysis_markdown)
 
-        return analysis
+        return analysis_html  # Return HTML
     except Exception as e:
         print(f"Error in OpenAI analysis: {e}")
-        return "Analysis not available"
+        return "<p>Analysis not available due to an error.</p>"  # Return HTML error
 
 
 # Initialize Bot Framework Adapter

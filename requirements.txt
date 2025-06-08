@@ -18,3 +18,4 @@ botframework-connector
 aiohttp
 flask
 nest-asyncio
+markdown2

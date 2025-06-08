@@ -128,10 +128,11 @@
               <div class="section analysis">
                 <h4>Root Cause Analysis</h4>
                 <div class="root-cause-analysis">
-                  <p>
-                    {{ cluster.root_cause_analysis|replace('\n', '<br />')|safe
-                    }}
-                  </p>
+                  <div>
+                    <!-- Changed p to div -->
+                    {{ cluster.root_cause_analysis|safe }}
+                    <!-- Removed replace filter -->
+                  </div>
                 </div>
               </div>
             </div>
@@ -159,6 +160,7 @@
         {% endif %}
       </div>
     </main>
+
     <script>
       document.addEventListener("DOMContentLoaded", function () {
         const clusterCards = document.querySelectorAll(".cluster-card");
