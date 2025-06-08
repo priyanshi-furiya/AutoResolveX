@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 import os
 from dotenv import load_dotenv
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
+from utils import verify_ticket_access_token  # Import our utility function
 import json
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,11 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
+from bot import TeamsBot
+from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
+import nest_asyncio
+import traceback
+from botbuilder.schema import Activity
 
 # Load environment variables
 load_dotenv()
@@ -89,8 +95,8 @@ try:
     cosmos_client_instance = CosmosClient(
         COSMOS_DB_URI,
         credential=COSMOS_DB_KEY,
-        connection_timeout=100,  # Faster timeout
-        request_timeout=300
+        connection_timeout=10000,  # Faster timeout
+        request_timeout=30000
     )
     cosmos_database = cosmos_client_instance.get_database_client(DATABASE_NAME)
     incidents_container = cosmos_database.get_container_client(CONTAINER_NAME)
@@ -99,17 +105,20 @@ except Exception as e:
     print(f"Error connecting to Cosmos DB: {e}")
     incidents_container = None
 
+# Apply nest_asyncio to allow nested event loops
+nest_asyncio.apply()
+
 # Azure OpenAI Client with connection pooling
 try:
     custom_http_client = httpx.Client(
-        timeout=300.0,
+        timeout=30000,
         limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
     )
 
     aoai_client = AzureOpenAI(
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version=AZURE_OPENAI_API_VERSION,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+        api_version=os.getenv('AZURE_OPENAI_API_VERSION'),
+        azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
         http_client=custom_http_client
     )
     print("Successfully initialized Azure OpenAI client.")
@@ -133,24 +142,47 @@ users = {}
 
 @lru_cache(maxsize=1)
 def load_and_process_tickets():
-    """Load and process ticket data from Excel file with caching."""
-    df = pd.read_excel("CaseDataWIthResolution.xlsx")
+    """Load and process ticket data from Cosmos DB."""
+    try:
+        if not incidents_container:
+            print("Error: Cosmos DB container not initialized.")
+            return None
 
-    # Prepare text data
-    df['combined_text'] = ''
-    text_columns = {
-        'Summary': '',
-        'Latest Comments': '',
-        'Task Type': 'Task Type: ',
-        'Status': 'Status: '
-    }
+        # Fetch data from Cosmos DB
+        query = """
+        SELECT c.Summary, c["Latest Comments"], c["Task Type"], c.Status,
+               c.Category, c.Severity, c.Priority, c["Resolution Date"],
+               c["Date Submitted"]
+        FROM c
+        """
+        items = list(incidents_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
 
-    for col, prefix in text_columns.items():
-        if col in df.columns:
-            df['combined_text'] += prefix + df[col].astype(str) + ' '
+        # Convert to DataFrame
+        df = pd.DataFrame(items)
 
-    df['combined_text'] = df['combined_text'].str.strip()
-    return df
+        # Prepare text data
+        df['combined_text'] = ''
+        text_columns = {
+            'Summary': '',
+            'Latest Comments': '',
+            'Task Type': 'Task Type: ',
+            'Status': 'Status: '
+        }
+
+        for col, prefix in text_columns.items():
+            if col in df.columns:
+                df['combined_text'] += prefix + \
+                    df[col].fillna('').astype(str) + ' '
+
+        df['combined_text'] = df['combined_text'].str.strip()
+
+        return df
+    except Exception as e:
+        print(f"Error loading ticket data from Cosmos DB: {e}")
+        return None
 
 
 def perform_cluster_analysis(df, num_clusters=5):
@@ -260,9 +292,8 @@ def get_cluster_analysis(cluster_df, metadata, metrics):
         6. Process Improvements: Recommendations for process/system enhancements
 
         Focus on actionable insights and clear patterns."""
-
-        response = client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_NAME,
+        response = aoai_client.chat.completions.create(
+            model=AZURE_OPENAI_GPT4O_DEPLOYMENT,
             messages=[
                 {"role": "system", "content": """You are an expert IT incident analyst specializing in root cause analysis. 
                 Your analysis should be detailed, data-driven, and focused on actionable insights. 
@@ -294,13 +325,16 @@ def get_cluster_analysis(cluster_df, metadata, metrics):
 
 @lru_cache(maxsize=1)
 def get_tickets():
-    """Get tickets data from Excel file with caching."""
+    """Get tickets data from Cosmos DB with caching."""
     try:
-        df = pd.read_excel("CaseDataWIthResolution.xlsx")
-        tickets = df.to_dict('records')
-        return tickets
+        if not incidents_container:
+            print("Error: Cosmos DB container not initialized.")
+            return []
+
+        # Use fetch_incidents_cached which already has caching logic
+        return fetch_incidents_cached()
     except Exception as e:
-        print(f"Error loading tickets: {e}")
+        print(f"Error loading tickets from Cosmos DB: {e}")
         return []
 
 
@@ -613,12 +647,14 @@ def ask_assistant_route():
         user_query = data['query']
         current_incident_context_data = data.get(
             'current_incident_context', None)
+        focus_on_ticket_only = data.get('focus_on_ticket_only', False)
+        ticket_id = data.get('ticket_id', None)
 
         context_for_llm_str = ""
         context_found = False
 
-        # Always try to find context from historical incidents
-        if incidents_container:
+        # If focus_on_ticket_only is True, skip searching historical incidents
+        if incidents_container and not focus_on_ticket_only:
             search_text = user_query
 
             # Prioritize current incident context if provided
@@ -721,24 +757,32 @@ def ask_assistant_route():
                     context_time = time.time() - context_start_time
                     print(f"Context retrieval took {context_time:.2f}s")
                 else:
+                    # Provide a comprehensive system prompt
                     print("Failed to generate embedding for context search")
-
-        # Always provide a comprehensive system prompt
-        system_prompt = (
-            "You are an expert IT support assistant with access to a knowledge base of past incidents. "
-            "Your role is to help support agents resolve issues quickly and effectively. "
-            "When provided with context from past incidents, use that information to give specific, "
-            "actionable advice. If no specific context is available, provide general best practices "
-            "and troubleshooting steps. Always be practical and solution-focused."
-        )
+        if focus_on_ticket_only and ticket_id:
+            system_prompt = (
+                f"You are an expert IT support assistant. You are currently helping with ticket #{ticket_id}. "
+                f"Your role is to help support agents resolve this specific ticket quickly and effectively. "
+                f"Focus exclusively on the details of this ticket. "
+                f"Provide specific, actionable advice based on the ticket details. "
+                f"Be practical and solution-focused."
+            )
+        else:
+            system_prompt = (
+                "You are an expert IT support assistant with access to a knowledge base of past incidents. "
+                "Your role is to help support agents resolve issues quickly and effectively. "
+                "When provided with context from past incidents, use that information to give specific, "
+                "actionable advice. If no specific context is available, provide general best practices "
+                "and troubleshooting steps. Always be practical and solution-focused."
+            )
 
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add context if found
-        if context_for_llm_str:
+        # Add context if found and not focusing only on current ticket
+        if context_for_llm_str and not focus_on_ticket_only:
             messages.append(
                 {"role": "system", "content": f"Knowledge Base Context:\n{context_for_llm_str}"})
-        else:
+        elif not focus_on_ticket_only:
             messages.append(
                 {"role": "system", "content": "No specific historical incidents found in knowledge base for this query. Provide general troubleshooting advice."})
 
@@ -749,9 +793,8 @@ def ask_assistant_route():
                 incident_context += f"- {key}: {value}\n"
             messages.append({"role": "system", "content": incident_context})
 
-        messages.append({"role": "user", "content": user_query})
-
-        # Generate response
+        messages.append({"role": "user", "content": user_query}
+                        )        # Generate response
         chat_response = aoai_client.chat.completions.create(
             model=AZURE_OPENAI_GPT4O_DEPLOYMENT,
             messages=messages,
@@ -761,15 +804,69 @@ def ask_assistant_route():
 
         assistant_answer = chat_response.choices[0].message.content
 
-        return jsonify({
+        response_data = {
             "answer": assistant_answer,
-            "context_used": context_found,
-            "context_summary": context_for_llm_str if context_for_llm_str else "No relevant historical incidents found",
-            "incidents_processed": len(cached_incidents) if incidents_container else 0
-        }), 200
+            "context_used": context_found and not focus_on_ticket_only,
+            "incidents_processed": len(cached_incidents) if incidents_container and not focus_on_ticket_only else 0
+        }
+
+        if ticket_id:
+            response_data["ticket_id"] = ticket_id
+
+        if not focus_on_ticket_only:
+            response_data["context_summary"] = context_for_llm_str if context_for_llm_str else "No relevant historical incidents found"
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         print(f"Error in /ask-assistant: {e}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+
+@app.route('/api/ask-assistant', methods=['POST'])
+def api_ask_assistant_route():
+    """API endpoint for ask assistant (used by demo page)."""
+    if not aoai_client:
+        return jsonify({"error": "Azure OpenAI client not configured for chat."}), 503
+
+    try:
+        data = request.get_json()
+        if not data or 'message' not in data or not data['message'].strip():
+            return jsonify({"error": "Missing or empty 'message' in request body"}), 400
+
+        user_query = data['message']
+        ticket_id = data.get('ticket_id', 'DEMO-001')
+
+        # Simple system prompt for demo
+        system_prompt = (
+            "You are an expert IT support assistant. Provide helpful, accurate, and actionable advice "
+            "for IT support questions. Format your response using markdown for better readability. "
+            "Use numbered lists for step-by-step instructions, bullet points for multiple options, "
+            "and **bold** text for important information."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query}
+        ]
+
+        # Generate response
+        chat_response = aoai_client.chat.completions.create(
+            model=AZURE_OPENAI_GPT4O_DEPLOYMENT,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.3
+        )
+
+        assistant_answer = chat_response.choices[0].message.content
+
+        return jsonify({
+            "response": assistant_answer,
+            "ticket_id": ticket_id
+        }), 200
+
+    except Exception as e:
+        print(f"Error in /api/ask-assistant: {e}")
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
@@ -943,6 +1040,27 @@ def ticket_details(ticket_id):
     return render_template('ticket-details.html', ticket=ticket)
 
 
+@app.route('/direct-ticket/<ticket_id>/<token>')
+def direct_ticket_details(ticket_id, token):
+    """Route for accessing ticket details directly without login using a secure token."""
+    # Verify token - this is a simple implementation, can be enhanced with more security
+    if not verify_ticket_access_token(ticket_id, token):
+        flash('Invalid or expired access link')
+        return redirect(url_for('login'))
+
+    tickets = get_tickets()
+    ticket = next((t for t in tickets if str(
+        t.get('Ticket Number')) == ticket_id), None)
+    if ticket is None:
+        flash('Ticket not found')
+        return redirect(url_for('login'))
+
+    # We'll use the same template but won't require session
+    return render_template('ticket-details.html', ticket=ticket)
+
+# Token functions have been moved to utils.py
+
+
 @app.route('/search')
 def search():
     if 'user_email' not in session:
@@ -960,9 +1078,34 @@ def search():
 # --- Cluster Analysis Functions ---
 
 def load_and_process_tickets():
-    """Load and process ticket data from Excel file."""
+    """Load and process ticket data directly from Cosmos DB."""
     try:
-        df = pd.read_excel("CaseDataWIthResolution.xlsx")
+        if not incidents_container:
+            print("Error: Cosmos DB container not initialized.")
+            return None
+
+        # Fetch all required fields from Cosmos DB
+        query = """
+        SELECT 
+            c.Summary,
+            c["Latest Comments"],
+            c["Task Type"],
+            c.Status,
+            c.Category,
+            c.Severity,
+            c.Priority,
+            c["Resolution Date"],
+            c["Date Submitted"]
+        FROM c
+        WHERE IS_DEFINED(c.Summary)
+        """
+
+        # Execute query and convert to DataFrame
+        items = list(incidents_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        df = pd.DataFrame(items)
 
         # Prepare text data
         df['combined_text'] = ''
@@ -1178,6 +1321,60 @@ def get_root_cause_analysis(cluster_df, metadata, metrics):
         return "Analysis not available"
 
 
+# Initialize Bot Framework Adapter
+try:
+    adapter_settings = BotFrameworkAdapterSettings(
+        app_id=os.getenv('MICROSOFT_APP_ID'),
+        app_password=os.getenv('MICROSOFT_APP_PASSWORD')
+    )
+    adapter = BotFrameworkAdapter(adapter_settings)
+    print("Bot Framework Adapter initialized successfully")
+
+    # Error Handler
+    async def on_error(context, error):
+        print(f"\n[on_turn_error] unhandled error: {error}")
+        traceback.print_exc()
+        await context.send_activity("The bot encountered an error or bug.")
+
+    adapter.on_turn_error = on_error
+
+    # Initialize TeamsBot with the same OpenAI client
+    bot = TeamsBot(app_id=os.getenv('MICROSOFT_APP_ID'),
+                   aoai_client=aoai_client)
+    print("TeamsBot initialized successfully")
+except Exception as e:
+    print(f"Error initializing bot: {e}")
+    adapter = None
+    bot = None
+
+
+@app.route("/api/messages", methods=["POST"])
+def messages():
+    if not adapter or not bot:
+        return jsonify({"error": "Bot not properly initialized"}), 500
+
+    try:
+        body = request.json
+        auth_header = request.headers.get("Authorization", "")
+
+        async def process_activity():
+            activity = Activity().deserialize(body)
+            return await adapter.process_activity(activity, auth_header, bot.on_turn)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(process_activity())
+
+        if result:
+            return result.body, result.status
+        return "", 202
+
+    except Exception as e:
+        print(f"Error processing message: {e}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/root-cause-pattern')
 def root_cause_pattern():
     """Route handler for root cause pattern analysis."""
@@ -1225,6 +1422,60 @@ def root_cause_pattern():
         return render_template('root-cause-pattern.html', clusters=[], plot_base64=None)
 
 
+@app.route('/api/generate-token', methods=['POST'])
+def generate_token_api():
+    """API endpoint to generate a token for direct ticket access."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+
+    data = request.get_json()
+    ticket_id = data.get('ticket_id')
+
+    if not ticket_id:
+        return jsonify({"error": "Missing ticket_id parameter"}), 400
+
+    # Generate token using our utility function
+    from utils import generate_ticket_access_token
+    token, timestamp = generate_ticket_access_token(ticket_id)
+
+    return jsonify({
+        "ticket_id": ticket_id,
+        "token": token,
+        "timestamp": timestamp,
+        "expires_in": 86400  # Token valid for 24 hours (for demo purposes)
+    }), 200
+
+
+@app.route('/test-direct-link')
+def test_direct_link_page():
+    """Page to test direct ticket link generation."""
+    return send_file('test_direct_link.html')
+
+
+@app.route('/test-chat')
+def test_chat():
+    """Test route for chat functionality."""
+    # Create a sample ticket
+    sample_ticket = {
+        "Ticket Number": "TEST-123",
+        "Summary": "Test ticket for chat functionality",
+        "Category": "Testing",
+        "Priority": "Medium",
+        "Severity": "3",
+        "Project": "AutoResolveX",
+        "Date Submitted": "2025-06-08",
+        "Resolution Date": None,
+        "Latest Comments": "This is a test ticket to verify chat functionality."
+    }
+    return render_template('ticket-details.html', ticket=sample_ticket)
+
+
+@app.route('/demo')
+def demo_page():
+    """Demo page showcasing ticket functionality."""
+    return render_template('demo.html')
+
+
 # --- Main Execution ---
 if __name__ == '__main__':
     print("Starting optimized Flask server...")
@@ -1236,10 +1487,9 @@ if __name__ == '__main__':
     print(f"- Embedding cache size: {EMBEDDING_CACHE_SIZE}")
     print(f"- Max workers: {MAX_WORKERS}")
     print(f"- Cache TTL: {incidents_cache['ttl']} seconds")
-
     if not incidents_container:
         print("WARNING: Cosmos DB client not initialized.")
     if not aoai_client:
         print("WARNING: Azure OpenAI client not initialized.")
 
-    app.run(debug=True, port=5000, threaded=True)
+    app.run(host='0.0.0.0', debug=True, port=5000, threaded=True)
