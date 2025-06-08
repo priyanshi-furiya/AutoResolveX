@@ -12,3 +12,9 @@ flask-sqlalchemy
 httpx
 werkzeug
 gunicorn
+botbuilder-core
+botbuilder-integration-aiohttp
+botframework-connector
+aiohttp
+flask
+nest-asyncio
