@@ -12,18 +12,24 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
       rel="stylesheet"
     />
+    <!-- Add marked.js library for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const chatMessages = document.querySelector(".chat-messages");
         const inputField = document.querySelector(".input-area input");
         const sendButton = document.querySelector(".input-area button");
-        const loadingSpan = document.querySelector(".loading");
-
-        // Function to add a message to the chat
-        function addMessage(content, isUser = false) {
+        const loadingSpan = document.querySelector(".loading"); // Function to add a message to the chat
+        function addMessage(content, isUser = false, isHtml = false) {
           const messageDiv = document.createElement("div");
           messageDiv.className = `message ${isUser ? "user" : "assistant"}`;
-          messageDiv.textContent = content;
+
+          if (isHtml) {
+            messageDiv.innerHTML = content;
+          } else {
+            messageDiv.textContent = content;
+          }
+
           chatMessages.appendChild(messageDiv);
           chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -43,11 +49,12 @@
             });
 
             if (!response.ok) throw new Error("Failed to get response");
-
             const data = await response.json();
             if (data.error) throw new Error(data.error);
 
-            addMessage(data.answer);
+            // Parse markdown and display as HTML
+            const htmlContent = marked.parse(data.answer);
+            addMessage(htmlContent, false, true);
           } catch (error) {
             const errorDiv = document.createElement("div");
             errorDiv.className = "error-message";

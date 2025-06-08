@@ -13,11 +13,21 @@
       rel="stylesheet"
     />
     <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const chatMessages = document.querySelector(".chat-messages");
-        const inputField = document.querySelector(".input-area input");
-        const sendButton = document.querySelector(".input-area button");
+      document.addEventListener("DOMContentLoaded", () => {        const chatMessages = document.querySelector(".chat-messages");
+        const chatForm = document.getElementById("chatForm");
+        const inputField = document.getElementById("chatInput");
+        const sendButton = document.getElementById("sendButton");
         const loadingSpan = document.querySelector(".loading");
+
+        // Ticket information from server side
+        const ticketData = {
+          ticketNumber: "{{ ticket['Ticket Number'] }}",
+          summary: "{{ ticket['Summary']|safe|replace('\"', '\\\\"')|replace('\n', ' ') }}",
+          category: "{{ ticket['Category']|safe|replace('\"', '\\\\"')|replace('\n', ' ') }}",
+          priority: "{{ ticket['Priority']|safe|replace('\"', '\\\\"')|replace('\n', ' ') }}",
+          severity: "{{ ticket['Severity']|safe|replace('\"', '\\\\"')|replace('\n', ' ') }}",
+          latestComments: "{{ ticket['Latest Comments']|safe|replace('\"', '\\\\"')|replace('\n', ' ') }}"
+        };
 
         // Function to add a message to the chat
         function addMessage(content, isUser = false) {
@@ -26,36 +36,60 @@
           messageDiv.textContent = content;
           chatMessages.appendChild(messageDiv);
           chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // Function to handle the assistant request
+        }        // Function to handle the assistant request
         async function askAssistant(query) {
           try {
             loadingSpan.style.display = "inline-block";
-            const response = await fetch("/ask-assistant", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                query: query,
-                current_incident_context: {
-                  summary: '{{ ticket["Summary"] }}',
-                  category: '{{ ticket["Category"] }}',
-                  priority: '{{ ticket["Priority"] }}',
-                  severity: '{{ ticket["Severity"] }}',
-                  latest_comments: '{{ ticket["Latest Comments"] }}',
+            
+            const payload = {
+              query: query,
+              ticket_id: ticketData.ticketNumber,
+              focus_on_ticket_only: true, // Tell the API to focus only on this ticket
+              current_incident_context: {
+                summary: ticketData.summary,
+                category: ticketData.category,
+                priority: ticketData.priority,
+                severity: ticketData.severity,
+                latest_comments: ticketData.latestComments,
+              }
+            };
+            
+            console.log("Sending request with payload:", payload);
+            
+            // Attempt to send the request with a timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
+            
+            try {
+              const response = await fetch("/ask-assistant", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
                 },
-              }),
-            });
+                body: JSON.stringify(payload),
+                signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Server response: ${response.status} - ${errorText || "No error details provided"}`);
+              }
 
-            if (!response.ok) throw new Error("Failed to get response");
+              const data = await response.json();
+              if (data.error) throw new Error(data.error);
 
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-
-            addMessage(data.answer);
+              console.log("Response received:", data);
+              addMessage(data.answer || "I'm sorry, I couldn't generate a response for this query.");
+            } catch (fetchError) {
+              if (fetchError.name === 'AbortError') {
+                throw new Error('Request timed out. The server might be busy. Please try again later.');
+              }
+              throw fetchError;
+            }
           } catch (error) {
+            console.error("Error in askAssistant:", error);
             const errorDiv = document.createElement("div");
             errorDiv.className = "error-message";
             errorDiv.textContent = `Error: ${error.message}`;
@@ -63,10 +97,9 @@
           } finally {
             loadingSpan.style.display = "none";
           }
-        }
-
-        // Handle send button click
-        sendButton.addEventListener("click", () => {
+        }// Handle form submission
+        chatForm.addEventListener("submit", (e) => {
+          e.preventDefault();
           const query = inputField.value.trim();
           if (query) {
             addMessage(query, true);
@@ -75,18 +108,29 @@
           }
         });
 
+        // Handle send button click as backup
+        sendButton.addEventListener("click", () => {
+          chatForm.dispatchEvent(new Event('submit'));
+        });
+
         // Handle enter key
         inputField.addEventListener("keypress", (e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            sendButton.click();
+            chatForm.dispatchEvent(new Event('submit'));
           }
-        });
-
-        // Add initial message
+        });// Add initial message
         addMessage(
-          "Hello! I'm your AI assistant. How can I help you with this ticket?"
+          `Hello! I'm your AI assistant. How can I help you with Ticket #${ticketData.ticketNumber}?`
         );
+        
+        // Debug check of DOM elements
+        console.log("Chat elements check:", {
+          chatMessages: chatMessages ? "Found" : "Not found",
+          inputField: inputField ? "Found" : "Not found",
+          sendButton: sendButton ? "Found" : "Not found",
+          loadingSpan: loadingSpan ? "Found" : "Not found"
+        });
       });
     </script>
   </head>
@@ -95,6 +139,7 @@
       <div class="logo">AutoResolveX</div>
       <nav>
         <ul class="nav-links">
+          {% if session.get('user_email') %}
           <li><a href="/similar-tickets">Similar Tickets</a></li>
           <li><a href="/recommended-tickets">Recommended Tickets</a></li>
           <li>
@@ -105,20 +150,38 @@
             >
           </li>
           <li><a href="/root-cause-pattern">Root Cause Pattern</a></li>
+          {% else %}
+          <li><a href="/login">Login</a></li>
+          {% endif %}
         </ul>
       </nav>
       <div class="right-actions">
+        {% if session.get('user_email') %}
         <div class="search-box">
           🔍 <input type="text" placeholder="Search" />
         </div>
         <div class="icon">🔔</div>
         <div class="avatar">🧑🏽</div>
+        {% endif %}
       </div>
     </header>
-
     <main class="content">
       <div class="left-section">
         <h2>Ticket #{{ ticket['Ticket Number'] }}: {{ ticket['Summary'] }}</h2>
+        {% if request.path.startswith('/direct-ticket') %}
+        <div
+          style="
+            background-color: #e7f3ff;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+          "
+        >
+          <p style="margin: 0">
+            You're viewing this ticket through a direct link. No login required.
+          </p>
+        </div>
+        {% endif %}
 
         <div class="tabs">
           <span class="tab">Overview</span>
@@ -137,12 +200,12 @@
 
           <div class="chat-messages">
             <!-- Messages will be added here by JavaScript -->
-          </div>
-
-          <div class="input-area">
-            <input type="text" placeholder="Ask the assistant a question..." />
-            <button>Send</button>
-            <span class="loading" style="display: none">⏳</span>
+          </div>          <div class="input-area">
+            <form id="chatForm">
+              <input id="chatInput" type="text" placeholder="Ask the assistant a question..." autocomplete="off" />
+              <button id="sendButton" type="submit">Send</button>
+              <span class="loading" style="display: none">⏳</span>
+            </form>
           </div>
         </div>
       </div>

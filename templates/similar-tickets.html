@@ -22,25 +22,50 @@
             e.preventDefault();
             const query = searchInput.value.trim();
 
+            if (!query) {
+              alert("Please enter a search query");
+              return;
+            }
+
+            // Show loading indicator
+            tableBody.innerHTML = `
+              <tr>
+                <td colspan="4" style="text-align: center">Searching for similar incidents...</td>
+              </tr>
+            `;
+
             try {
-              const response = await fetch(
-                `/search?q=${encodeURIComponent(query)}`
-              );
-              if (!response.ok) throw new Error("Search failed");
+              const response = await fetch("/search-similar-incidents", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ text: query }),
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || "Search failed");
+              }
 
               const tickets = await response.json();
 
-              // Update table with search results
+              // Update table with search results including similarity scores
               tableBody.innerHTML = tickets
                 .map(
                   (ticket) => `
                 <tr>
-                  <td>${ticket["Ticket Number"]}</td>
+                  <td>${ticket.TicketNumber || "N/A"}</td>
                   <td>
-                    <a href="/ticket-details/${ticket["Ticket Number"]}">${ticket["Summary"]}</a>
+                    <a href="/ticket-details/${ticket.TicketNumber}">${
+                    ticket.Summary || "No summary available"
+                  }</a>
                   </td>
+                  <td>${(ticket.similarity_score * 100).toFixed(1)}%</td>
                   <td>
-                    <a href="/ticket-details/${ticket["Ticket Number"]}" class="view-link">View</a>
+                    <a href="/ticket-details/${
+                      ticket.TicketNumber
+                    }" class="view-link">View</a>
                   </td>
                 </tr>
               `
@@ -50,12 +75,19 @@
               if (tickets.length === 0) {
                 tableBody.innerHTML = `
                   <tr>
-                    <td colspan="3" style="text-align: center">No tickets found</td>
+                    <td colspan="4" style="text-align: center">No similar incidents found</td>
                   </tr>
                 `;
               }
             } catch (error) {
               console.error("Search failed:", error);
+              tableBody.innerHTML = `
+                <tr>
+                  <td colspan="4" style="text-align: center; color: red">
+                    Error: ${error.message}
+                  </td>
+                </tr>
+              `;
             }
           }
         });
@@ -67,7 +99,11 @@
       <div class="logo">AutoResolveX</div>
       <nav>
         <ul class="nav-links">
-          <li><a href="/similar-tickets" class="active">Similar Tickets</a></li>
+          <li>
+            <a href="/search-similar-incidents" class="active"
+              >Similar Tickets</a
+            >
+          </li>
           <li><a href="/recommended-tickets">Recommended Tickets</a></li>
           <li><a href="/ask-assistant">Ask Assistant</a></li>
           <li><a href="/root-cause-pattern">Root Cause Pattern</a></li>
@@ -75,7 +111,11 @@
       </nav>
       <div class="right-actions">
         <div class="search-box">
-          🔍 <input type="text" placeholder="Search" />
+          🔍
+          <input
+            type="text"
+            placeholder="Describe your issue to find similar tickets..."
+          />
         </div>
         <div class="icon">🔔</div>
         <div class="avatar">🧑🏽</div>
@@ -94,6 +134,7 @@
           <tr>
             <th>Ticket Number</th>
             <th>Description</th>
+            <th>Similarity</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -107,6 +148,7 @@
                 >{{ ticket['Summary'] }}</a
               >
             </td>
+            <td>N/A</td>
             <td>
               <a
                 href="{{ url_for('ticket_details', ticket_id=ticket['Ticket Number']) }}"

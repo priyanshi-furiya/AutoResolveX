@@ -1,0 +1,40 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "a73c7791-1475-46d1-bc2f-97cfed0c68b2",
+  "developer": {
+    "name": "Priyanshi Furiya",
+    "websiteUrl": "https://autoresolvex-heafakckc3aqb5d6.westus3-01.azurewebsites.net/login",
+    "privacyUrl": "https://autoresolvex-heafakckc3aqb5d6.westus3-01.azurewebsites.net/login",
+    "termsOfUseUrl": "https://autoresolvex-heafakckc3aqb5d6.westus3-01.azurewebsites.net/login"
+  },
+  "name": {
+    "short": "AutoResolveX",
+    "full": "AutoResolveX Bot"
+  },
+  "description": {
+    "short": "AI-Powered IT Ticket Triage and Resolution Engine",
+    "full": "AI-Powered IT Ticket Triage and Resolution Engine"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "a73c7791-1475-46d1-bc2f-97cfed0c68b2",
+      "scopes": ["personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "autoresolvex-heafakckc3aqb5d6.westus3-01.azurewebsites.net"
+  ]
+}

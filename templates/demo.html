@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoResolveX Demo</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        h1, h2 {
+            color: #d2492a;
+        }
+        
+        .card {
+            border: 1px solid #e1e4eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .feature {
+            flex: 1;
+            min-width: 200px;
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .actions {
+            margin-top: 20px;
+        }
+        
+        button, .button {
+            background-color: #d2492a;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        button:hover, .button:hover {
+            background-color: #b33e24;
+        }
+        
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        #directLinkResult {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e9f2ff;
+            border-left: 4px solid #0277bd;
+            display: none;
+        }
+        
+        footer {
+            margin-top: 40px;
+            border-top: 1px solid #e1e4eb;
+            padding-top: 20px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AutoResolveX Demo</h1>
+        <p>Explore the features of the AutoResolveX ticket management system with direct access from Teams.</p>
+    </header>
+    
+    <section class="card">
+        <h2>Key Features</h2>
+        <div class="features">
+            <div class="feature">
+                <h3>⚡ Direct Access</h3>
+                <p>Access ticket details directly from Teams without login</p>
+            </div>
+            <div class="feature">
+                <h3>🤖 AI Assistant</h3>
+                <p>Get AI assistance focused on the specific ticket context</p>
+            </div>
+            <div class="feature">
+                <h3>🔍 Similar Tickets</h3>
+                <p>Find similar tickets for faster resolution</p>
+            </div>
+        </div>
+    </section>
+    
+    <section class="card">
+        <h2>Generate Direct Ticket Link</h2>
+        <p>Create a direct access link to a ticket that bypasses login:</p>
+        
+        <div>
+            <label for="ticketId">Ticket ID:</label>
+            <input type="text" id="ticketId" placeholder="Enter ticket ID (e.g., INC-123)" />
+        </div>
+        
+        <div class="actions">
+            <button onclick="generateDirectLink()">Generate Direct Access Link</button>
+        </div>
+        
+        <div id="directLinkResult"></div>
+    </section>
+    
+    <section class="card">
+        <h2>Test Pages</h2>
+        <p>Access these test pages to explore functionality:</p>
+        
+        <div class="actions">
+            <a href="/test-chat" class="button">Test Chat Interface</a>
+            <a href="/test-direct-link" class="button">Test Direct Link Generator</a>
+        </div>
+    </section>
+    
+    <footer>
+        <p>&copy; 2025 AutoResolveX - IT Ticket Management System</p>
+    </footer>
+    
+    <script>
+        async function generateDirectLink() {
+            const ticketId = document.getElementById('ticketId').value.trim();
+            const resultDiv = document.getElementById('directLinkResult');
+            
+            if (!ticketId) {
+                alert('Please enter a valid ticket ID');
+                return;
+            }
+            
+            resultDiv.style.display = 'none';
+            
+            try {
+                // Get token from the API
+                const response = await fetch('/api/generate-token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ticket_id: ticketId })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to generate token');
+                }
+                
+                const data = await response.json();
+                const baseUrl = window.location.origin;
+                const directLink = `${baseUrl}/direct-ticket/${ticketId}/${data.token}`;
+                
+                // Display the result
+                resultDiv.innerHTML = `
+                    <h3>Direct Access Link:</h3>
+                    <p><a href="${directLink}" target="_blank">${directLink}</a></p>
+                    <p><small>This link allows access to ticket details without login for 24 hours.</small></p>
+                `;
+                resultDiv.style.display = 'block';
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
