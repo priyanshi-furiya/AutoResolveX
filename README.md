@@ -30,7 +30,8 @@ AutoResolveX is an intelligent IT service management platform that leverages Azu
 - **📊 Cluster Analysis**: Automated ticket clustering with root cause pattern identification
 - **💬 AI Assistant**: Contextual chat interface for ticket-specific assistance
 - **🔗 Direct Access Links**: Secure token-based access to tickets without authentication
-
+- **🎯 L1 Chatbot**: Intelligent Level 1 support bot that handles natural language queries for ticket recommendations and similar ticket searches.
+- 
 ### Microsoft Teams Integration
 - **Teams Bot**: Native Microsoft Teams bot with natural language processing
 - **Slash Commands**: Quick access to ticket operations via `/similar`, `/recommend`, `/help`
@@ -40,6 +41,8 @@ AutoResolveX is an intelligent IT service management platform that leverages Azu
 - **Real-time Dashboards**: Performance metrics and ticket analytics
 - **Root Cause Analysis**: AI-generated insights into recurring ticket patterns
 - **Temporal Analysis**: Time-based incident tracking and trending
+
+
 
 ## 🏗️ Architecture
 
@@ -213,6 +216,13 @@ The bot also supports natural language:
 - "Show me similar incidents for network issues"
 - "What are the recommended solutions for printer problems?"
 
+### L1 Chatbot Features
+- **Natural Language Understanding**: Processes conversational queries to identify ticket-related requests
+- **Intelligent Recommendations**: Uses AI to suggest relevant tickets based on user descriptions
+- **Similar Ticket Discovery**: Automatically finds and presents tickets with similar symptoms or keywords
+- **Context-Aware Responses**: Provides contextual information and next steps for each recommendation
+- **Multi-Modal Interaction**: Supports both structured commands and free-form natural language input
+  
 ### Teams Bot Features
 - **Contextual Responses**: AI-powered responses specific to ticket context
 - **Markdown Support**: Rich text formatting in Teams messages
