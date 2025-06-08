@@ -6,7 +6,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from utils import verify_ticket_access_token  # Import our utility function
 import json
 import asyncio
-import nest_asyncio  # Add this import
 from concurrent.futures import ThreadPoolExecutor
 from azure.cosmos import CosmosClient, exceptions as cosmos_exceptions
 from openai import AzureOpenAI
@@ -26,8 +25,11 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
-import matplotlib.pyplot as plt
-import markdown2  # Added import
+from bot import TeamsBot
+from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
+import nest_asyncio
+import traceback
+from botbuilder.schema import Activity
 
 # Load environment variables
 load_dotenv()
@@ -821,53 +823,6 @@ def ask_assistant_route():
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
-@app.route('/api/ask-assistant', methods=['POST'])
-def api_ask_assistant_route():
-    """API endpoint for ask assistant (used by demo page)."""
-    if not aoai_client:
-        return jsonify({"error": "Azure OpenAI client not configured for chat."}), 503
-
-    try:
-        data = request.get_json()
-        if not data or 'message' not in data or not data['message'].strip():
-            return jsonify({"error": "Missing or empty 'message' in request body"}), 400
-
-        user_query = data['message']
-        ticket_id = data.get('ticket_id', 'DEMO-001')
-
-        # Simple system prompt for demo
-        system_prompt = (
-            "You are an expert IT support assistant. Provide helpful, accurate, and actionable advice "
-            "for IT support questions. Format your response using markdown for better readability. "
-            "Use numbered lists for step-by-step instructions, bullet points for multiple options, "
-            "and **bold** text for important information."
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_query}
-        ]
-
-        # Generate response
-        chat_response = aoai_client.chat.completions.create(
-            model=AZURE_OPENAI_GPT4O_DEPLOYMENT,
-            messages=messages,
-            max_tokens=800,
-            temperature=0.3
-        )
-
-        assistant_answer = chat_response.choices[0].message.content
-
-        return jsonify({
-            "response": assistant_answer,
-            "ticket_id": ticket_id
-        }), 200
-
-    except Exception as e:
-        print(f"Error in /api/ask-assistant: {e}")
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
-
 @app.route('/ask-assistant')
 def ask_assistant_page():
     if 'user_email' not in session:
@@ -1297,7 +1252,7 @@ def get_root_cause_analysis(cluster_df, metadata, metrics):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an IT incident analyst. Provide detailed, actionable insights. Format your response in Markdown."
+                    "content": "You are an IT incident analyst. Provide detailed, actionable insights."
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -1305,17 +1260,18 @@ def get_root_cause_analysis(cluster_df, metadata, metrics):
             max_tokens=800
         )
 
-        analysis_markdown = response.choices[0].message.content
-        if not analysis_markdown or analysis_markdown.strip() == "":
-            return "<p>Analysis not available</p>"
+        analysis = response.choices[0].message.content
+        if not analysis or analysis.strip() == "":
+            return "Analysis not available"
 
-        # Convert Markdown to HTML
-        analysis_html = markdown2.markdown(analysis_markdown)
+        # Format analysis
+        for i in range(1, 7):
+            analysis = analysis.replace(f"{i}.", f"\n{i}.")
 
-        return analysis_html  # Return HTML
+        return analysis
     except Exception as e:
         print(f"Error in OpenAI analysis: {e}")
-        return "<p>Analysis not available due to an error.</p>"  # Return HTML error
+        return "Analysis not available"
 
 
 # Initialize Bot Framework Adapter
