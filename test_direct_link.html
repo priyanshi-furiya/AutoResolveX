@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Direct Ticket Link</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        h1 {
+            color: #333;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #linkResult {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+        }
+        a {
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Direct Ticket Link Generator</h1>
+        <p>Enter a ticket ID to generate a direct access link:</p>
+        
+        <input type="text" id="ticketId" placeholder="Enter ticket ID">
+        <button onclick="generateLink()">Generate Link</button>
+        
+        <div id="linkResult" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function generateLink() {
+            const ticketId = document.getElementById('ticketId').value.trim();
+            if (!ticketId) {
+                alert('Please enter a ticket ID');
+                return;
+            }
+            
+            try {
+                // Get the ticket token from the server
+                const response = await fetch('/api/generate-token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ticket_id: ticketId })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to generate token');
+                }
+                
+                const data = await response.json();
+                const baseUrl = window.location.origin;
+                const directLink = `${baseUrl}/direct-ticket/${ticketId}/${data.token}`;
+                
+                // Display the link
+                const linkResult = document.getElementById('linkResult');
+                linkResult.style.display = 'block';
+                linkResult.innerHTML = `
+                    <p><strong>Direct Link:</strong></p>
+                    <p><a href="${directLink}" target="_blank">${directLink}</a></p>
+                    <p><small>This link allows direct access to the ticket without requiring login.</small></p>
+                `;
+            } catch (error) {
+                alert('Error generating link: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
